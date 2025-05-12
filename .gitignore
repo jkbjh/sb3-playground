@@ -40,6 +40,16 @@ pip-delete-this-directory.txt
 htmlcov/
 .tox/
 .nox/
+**/\.idea/
+**/\.ipynb_checkpoints/
+**/*\.pyc
+**/*\.pdf
+**/.mypy_cache/**
+*.orig
+.vscode/
+*~
+*egg-info*
+# reports
 .coverage
 .coverage.*
 .cache
@@ -172,3 +182,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+pylint.html
+pytest-report.xml
+assets/style.css
+pytest-report.html

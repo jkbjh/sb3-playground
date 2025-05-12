@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python_example"
+version = "0.0.0"
+authors = [{name = "The Author", email = "author@email.com"}]
+license = {text = "MIT"}
+description = "An example for a python package."
+readme = "README.md"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+urls = {Homepage = "TODO"}
+dependencies = []
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+exclude = ["tests"]
+namespaces = false
+
+[tool.black]
+line-length = 120
+target-version = ['py38']
+include = '''
+    .*python_example/.*\.pyi?$
+    | .*scripts/.*\.pyi?$
+    | .*tests/.*\.pyi?$
+'''
+
+[tool.ruff]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+select = ["E", "F"]
+# Allow lines to be as long as 120 characters.
+line-length = 120
