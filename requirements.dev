@@ -1,0 +1,9 @@
+# -- when making aaai poster
+#pip-tools==7.1.0
+#setuptools==65.5.0  # due to a non-conformant version in gym v0.21.0
+#typing_extensions==4.5.0
+#typing_extensions==4.6.0
+#typing_extensions==4.7.1
+ipython
+pdbpp
+pre-commit

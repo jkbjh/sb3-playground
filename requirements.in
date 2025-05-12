@@ -1,0 +1,25 @@
+# for CPU Torch:
+#-i https://download.pytorch.org/whl/cpu
+#--extra-index-url https://pypi.org/simple
+# ---
+# control
+# git+https://github.com/aravindr93/mjrl.git#
+# git+https://github.com/kngwyu/mujoco-maze#egg=mujoco-maze
+# gymnax
+# opencv-python
+# pyglet
+# pyplnoise
+# rich
+# sb3-contrib
+# tables
+# tensorboard
+# tqdm
+#d4rl
+#git+https://github.com/PyTables/PyTables.git
+#git+https://github.com/jkbjh/cnppo.git cant install because not public
+#gym==0.21.0
+# ---
+dm_control
+gymnasium
+playground
+stable-baselines3
