@@ -1,6 +1,6 @@
 import nox
 
-PACKAGE_NAME = "python_example"
+PACKAGE_NAME = "sb3_playground"
 
 
 def common_install(session):

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "python_example"
+name = "sb3_playground"
 version = "0.0.0"
 authors = [{name = "The Author", email = "author@email.com"}]
 license = {text = "MIT"}
@@ -34,7 +34,7 @@ namespaces = false
 line-length = 120
 target-version = ['py38']
 include = '''
-    .*python_example/.*\.pyi?$
+    .*sb3_playground/.*\.pyi?$
     | .*scripts/.*\.pyi?$
     | .*tests/.*\.pyi?$
 '''
