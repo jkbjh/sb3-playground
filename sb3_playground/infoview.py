@@ -12,7 +12,7 @@ class InfoElementView:
         self._scalar_unwrap = scalar_unwrap
         self._to_numpy = to_numpy
 
-    def _maybe_unwrap_scalar(self, x):
+    def _maybe_convert(self, x):
         if self._scalar_unwrap and hasattr(x, "shape") and x.shape == ():
             x = x.item()
         if self._to_numpy and hasattr(x, "__array__"):
@@ -23,7 +23,7 @@ class InfoElementView:
         dtype = None
         if key == "TimeLimit.truncated":
             key = "truncation"
-            dtype = jnp.bool
+            dtype = jnp.bool_
         elif key == "terminal_observation":
             key = "last_obs"
         value = tree_util.tree_map(lambda x: x[self._index], self._info[key])
@@ -34,6 +34,12 @@ class InfoElementView:
         if self._to_numpy and hasattr(value, "__array__"):
             return np.asarray(value)
         return value
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
     def keys(self):
         keys = set(self._info.keys())
