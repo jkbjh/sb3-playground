@@ -1,8 +1,10 @@
 from jax import tree_util
 import jax.numpy as jnp
 
+
 class InfoElementView:
     """A dict-like view into a single element of a PyTree info structure."""
+
     def __init__(self, info, index, scalar_unwrap=False):
         self._info = info
         self._index = index
@@ -14,14 +16,29 @@ class InfoElementView:
         return x
 
     def __getitem__(self, key):
-        value = self._info[key]
-        return tree_util.tree_map(lambda x: self._maybe_unwrap_scalar(x[self._index]), value)
+        if key == "TimeLimit.truncated":
+            # Truncated is true when the episode ended due to step limit
+            term = self._info.get("termination", None)
+            trunc = self._info.get("truncation", None)
+            if trunc is not None and term is not None:
+                return bool(trunc[self._index] and not term[self._index])
+            return False
+        elif key == "terminal_observation":
+            last_obs = self._info.get("last_obs", None)
+            if last_obs is not None:
+                return tree_util.tree_map(lambda x: x[self._index], last_obs)
+            raise KeyError("terminal_observation not available")
+        else:
+            value = self._info[key]
+            return tree_util.tree_map(lambda x: self._maybe_unwrap_scalar(x[self._index]), value)
 
     def keys(self):
-        return self._info.keys()
+        keys = set(self._info.keys())
+        keys.update({"TimeLimit.truncated", "terminal_observation"})
+        return keys
 
     def __iter__(self):
-        return iter(self._info)
+        return iter(self.keys())
 
     def items(self):
         return ((k, self[k]) for k in self)
@@ -36,6 +53,7 @@ class InfoElementView:
 
 class InfoWrapper:
     """A list-like wrapper for a PyTree info dict-of-arrays."""
+
     def __init__(self, info, scalar_unwrap=True):
         self._info = info
         self._scalar_unwrap = scalar_unwrap
@@ -55,5 +73,3 @@ class InfoWrapper:
 
     def __repr__(self):
         return f"InfoWrapper(len={len(self)}, scalar_unwrap={self._scalar_unwrap})"
-
-
