@@ -6,18 +6,13 @@ import jax.numpy as jnp
 from infoview import InfoWrapper
 from .utils import split_rng_key
 
-# action_limits = env.mj_model.actuator_ctrlrange
-# env.action_size
-# env.observation_size
-
 
 class Mjx2SB3VecEnv(VecEnv):
     def __init__(self, env, num_envs, rng):
         self.env = env
         self._num_envs = num_envs
-        self.rng, self._keys = split_rng_key(rng, (num_envs,))
+        self.rng = rng
 
-        # Observation and action space
         obs_shape = (env.observation_size,)
         self._observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=obs_shape, dtype=np.float32)
 
@@ -26,52 +21,38 @@ class Mjx2SB3VecEnv(VecEnv):
         self._action_high = np.asarray(action_limits[:, 1])
         self._action_space = gym.spaces.Box(low=self._action_low, high=self._action_high, dtype=np.float32)
 
-        # JIT batched functions
         self._reset_fn = jax.jit(jax.vmap(env.reset))
         self._step_fn = jax.jit(jax.vmap(env.step))
         self._replenish_fn = jax.jit(jax.vmap(env.replenish_reset))
         self._render_fn = jax.jit(jax.vmap(env.render))
 
-        # Initial state
-        self._state = self._reset_fn(self._keys)
+        self._state = self._reset_fn(self._next_keys())
         self.reset_infos = InfoWrapper(self._state.info)
         self._actions = None
 
+    def _next_keys(self):
+        self.rng, keys = split_rng_key(self.rng, (self._num_envs,))
+        return keys
+
     def reset(self):
-        self.rng, self._keys = split_rng_key(self.rng, (self._num_envs,))
-        self._state = self._reset_fn(self._keys)
+        self._state = self._reset_fn(self._next_keys())
         self.reset_infos = InfoWrapper(self._state.info)
         return np.asarray(self._state.obs)
 
     def step_async(self, actions):
-        actions = np.asarray(actions)
-        clipped_actions = np.clip(actions, self._action_low, self._action_high)
-        self._actions = jnp.asarray(clipped_actions)
-        self._next_state = self._step_fn(self._state, self._actions)
+        clipped = np.clip(actions, self._action_low, self._action_high)
+        self._actions = jnp.asarray(clipped)
 
     def step_wait(self):
-        self._state = self._next_state
+        self._state = self._step_fn(self._state, self._actions)
         obs = np.asarray(self._state.obs)
         rewards = np.asarray(self._state.reward)
         dones = np.asarray(self._state.done).astype(bool)
 
-        state_info = self._state.info
-
-        # Add SB3 aliases directly into info
-        terminations = np.asarray(state_info["termination"]).astype(bool)
-        truncations = np.asarray(state_info["truncation"]).astype(bool)
-        time_limit_flags = truncations & ~terminations
-
-        state_info["TimeLimit.truncated"] = time_limit_flags
-        state_info["terminal_observation"] = state_info["last_obs"]
-
-        infos = InfoWrapper(state_info)
-
-        # Auto-reset if needed
         if np.any(dones):
-            self.rng, replenish_keys = split_rng_key(self.rng, (self._num_envs,))
-            self._state = self._replenish_fn(replenish_keys, self._state)
+            self._state = self._replenish_fn(self._next_keys(), self._state)
 
+        infos = InfoWrapper(self._state.info)
         return obs, rewards, dones, infos
 
     def render(self, mode="rgb_array"):
@@ -84,6 +65,15 @@ class Mjx2SB3VecEnv(VecEnv):
 
     def close(self):
         pass
+
+    def get_attr(self, attr_name, indices=None):
+        return [getattr(self.env, attr_name)] * self._num_envs
+
+    def set_attr(self, attr_name, value, indices=None):
+        setattr(self.env, attr_name, value)
+
+    def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
+        return [getattr(self.env, method_name)(*method_args, **method_kwargs)] * self._num_envs
 
     @property
     def num_envs(self):
