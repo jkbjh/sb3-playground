@@ -1,9 +1,16 @@
-from stable_baselines3.common.vec_env import VecEnv
-import gym
-import numpy as np
+from typing import Any
+from typing import Iterable
+from typing import List
+from typing import Optional
+from typing import Union
+
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
-from infoview import InfoWrapper
+import numpy as np
+from stable_baselines3.common.vec_env import VecEnv
+
+from .infoview import InfoWrapper
 from .utils import split_rng_key
 
 
@@ -77,3 +84,77 @@ class Mjx2SB3VecEnv(VecEnv):
     @property
     def action_space(self):
         return self._action_space
+
+    # -- the following abstract methods need to be there, but I'm not sure yet how to implement them for MjxEnv.
+    def get_attr(self, attr_name: str, indices: Optional[Union[int, Iterable[int]]] = None) -> Any:
+        """
+        Return attribute from the underlying environments.
+
+        Args:
+            attr_name (str): The name of the attribute to retrieve.
+            indices (Optional[Union[int, Iterable[int]]]): Indices of environments to query.
+                If None, applies to all environments.
+
+        Returns:
+            Any: The attribute(s) value(s).
+        """
+        # Example implementation:
+        # indices = self._get_indices(indices)
+        # return [getattr(self.envs[i], attr_name) for i in indices]
+        raise NotImplementedError("get_attr is not implemented in this wrapper.")
+
+    def set_attr(self, attr_name: str, value: Any, indices: Optional[Union[int, Iterable[int]]] = None) -> None:
+        """
+        Set attribute in the underlying environments.
+
+        Args:
+            attr_name (str): The name of the attribute to set.
+            value (Any): The value to assign.
+            indices (Optional[Union[int, Iterable[int]]]): Indices of environments to modify.
+                If None, applies to all environments.
+        """
+        # Example implementation:
+        # indices = self._get_indices(indices)
+        # for i in indices:
+        #     setattr(self.envs[i], attr_name, value)
+        raise NotImplementedError("set_attr is not implemented in this wrapper.")
+
+    def env_method(
+        self, method_name: str, *method_args, indices: Optional[Union[int, Iterable[int]]] = None, **method_kwargs
+    ) -> Any:
+        """
+        Call a method on the underlying environments.
+
+        Args:
+            method_name (str): The name of the method to call.
+            *method_args: Positional arguments to pass.
+            indices (Optional[Union[int, Iterable[int]]]): Indices of environments to apply the method to.
+                If None, applies to all environments.
+            **method_kwargs: Keyword arguments to pass.
+
+        Returns:
+            Any: The return value(s) of the method call(s).
+        """
+        # Example implementation:
+        # indices = self._get_indices(indices)
+        # return [getattr(self.envs[i], method_name)(*method_args, **method_kwargs) for i in indices]
+        raise NotImplementedError("env_method is not implemented in this wrapper.")
+
+    def env_is_wrapped(
+        self, wrapper_class: type, indices: Optional[Union[int, Iterable[int]]] = None
+    ) -> Union[bool, List[bool]]:
+        """
+        Check if the environments are wrapped with a given wrapper.
+
+        :param wrapper_class: The class of the wrapper to check.
+        :param indices: Indices of the environments to check. If None, check all.
+        :return: A boolean or list of booleans indicating if the env(s) are wrapped.
+        """
+        # Example implementation (commented out):
+        # if indices is None:
+        #     indices = range(self.num_envs)
+        # elif isinstance(indices, int):
+        #     indices = [indices]
+        # return [isinstance(self.envs[i], wrapper_class) for i in indices]
+
+        raise NotImplementedError("env_is_wrapped is not implemented.")

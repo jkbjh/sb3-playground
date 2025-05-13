@@ -1,18 +1,21 @@
-from typing import Callable, Optional, Sequence
+from typing import Callable
+from typing import Optional
+from typing import Sequence
 
 import jax
 import jax.numpy as jnp
 import mujoco
 import mujoco_playground
 import numpy as np
-
-# import mujoco_playground.locomotion
 import tqdm
 from mujoco_playground import registry
 from mujoco_playground._src import mjx_env
 from mujoco_playground._src.wrapper import Wrapper
+
+from .sb3 import Mjx2SB3VecEnv
 from .utils import split_rng_key
 
+# import mujoco_playground.locomotion
 
 ENV_NAME = "CartpoleBalance"
 # ENV_NAME = "SwimmerSwimmer6"
@@ -127,7 +130,8 @@ class MjxEpisodeWrapper(mujoco_playground.wrapper.Wrapper):
 
 
 class MjxRenderWrapper(mujoco_playground.wrapper.Wrapper):
-    """Wrapper that replaces only the render method of an MJX environment, using a jaxwith a custom JAX-compatible version."""
+    """Wrapper that replaces only the render method of an MJX environment,
+    using a jax with a custom JAX-compatible version."""
 
     def render(
         self,
@@ -153,36 +157,43 @@ class MjxRenderWrapper(mujoco_playground.wrapper.Wrapper):
         )
 
 
-wenv = MjxRenderWrapper(_env)
-jax.vmap(wenv.render)(ustate)
+if __name__ == "__main__":
 
+    _key, rng = jax.random.split(rng, 2)
+    keys = jnp.asarray(jax.random.split(_key, NUM_ENVS))
+    env_cfg = mujoco_playground.registry.get_default_config(ENV_NAME)
+    env_cfg.episode_length = 3
+    __env = registry.load(ENV_NAME, config=env_cfg)
+    _env = MjxRenderWrapper(__env)
+    tlenv = MjxEpisodeWrapper(_env, episode_length=env_cfg.episode_length, action_repeat=env_cfg.action_repeat)
+    env = ReplenishableAutoResetWrapper(tlenv)
 
-_key, rng = jax.random.split(rng, 2)
-keys = jnp.asarray(jax.random.split(_key, NUM_ENVS))
-env_cfg = mujoco_playground.registry.get_default_config(ENV_NAME)
-env_cfg.episode_length = 3
-_env = registry.load(ENV_NAME, config=env_cfg)
-tlenv = MjxEpisodeWrapper(_env, episode_length=env_cfg.episode_length, action_repeat=env_cfg.action_repeat)
-env = ReplenishableAutoResetWrapper(tlenv)
+    sb3_vecenv = Mjx2SB3VecEnv(env, NUM_ENVS, rng)
+    sb3_vecenv.reset()
 
-# env = mujoco_playground.wrapper.BraxAutoResetWrapper(_env)
-jitted_reset = jax.jit(jax.vmap(env.reset))
-jitted_step = jax.jit(jax.vmap(env.step))
-jitted_replenish = jax.jit(jax.vmap(env.replenish_reset))
+    from stable_baselines3 import PPO
 
-print("setup done")
-action_limits = env.mj_model.actuator_ctrlrange
-state0 = jitted_reset(keys)
-print("jitted reset done")
-action = jnp.array(np.random.uniform(size=(NUM_ENVS, env.action_size)))
-state = jitted_step(state0, action)
-print("jitted step done")
-# env.observation_size
+    model = PPO("MlpPolicy", sb3_vecenv, verbose=1)
+    model.learn(total_timesteps=10000)
 
-# jitted_step = jax.jit(jax.vmap(env.step))
-for i in tqdm.trange(1000):
-    state = jitted_step(state, action)
-    if any(state.done):
-        print("any state was done!")
-        rng, keys = split_rng_key(rng, (NUM_ENVS,))
-        state = jitted_replenish(keys, state)
+    # env = mujoco_playground.wrapper.BraxAutoResetWrapper(_env)
+    jitted_reset = jax.jit(jax.vmap(env.reset))
+    jitted_step = jax.jit(jax.vmap(env.step))
+    jitted_replenish = jax.jit(jax.vmap(env.replenish_reset))
+
+    print("setup done")
+    action_limits = env.mj_model.actuator_ctrlrange
+    state0 = jitted_reset(keys)
+    print("jitted reset done")
+    action = jnp.array(np.random.uniform(size=(NUM_ENVS, env.action_size)))
+    state = jitted_step(state0, action)
+    print("jitted step done")
+    # env.observation_size
+
+    # jitted_step = jax.jit(jax.vmap(env.step))
+    for i in tqdm.trange(1000):
+        state = jitted_step(state, action)
+        if any(state.done):
+            print("any state was done!")
+            rng, keys = split_rng_key(rng, (NUM_ENVS,))
+            state = jitted_replenish(keys, state)

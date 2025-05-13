@@ -1,36 +1,39 @@
-from jax import tree_util
 import jax.numpy as jnp
+import numpy as np
+from jax import tree_util
 
 
 class InfoElementView:
     """A dict-like view into a single element of a PyTree info structure."""
 
-    def __init__(self, info, index, scalar_unwrap=False):
+    def __init__(self, info, index, scalar_unwrap=True, to_numpy=True):
         self._info = info
         self._index = index
         self._scalar_unwrap = scalar_unwrap
+        self._to_numpy = to_numpy
 
     def _maybe_unwrap_scalar(self, x):
         if self._scalar_unwrap and hasattr(x, "shape") and x.shape == ():
-            return x.item()
+            x = x.item()
+        if self._to_numpy and hasattr(x, "__array__"):
+            return np.asarray(x)
         return x
 
     def __getitem__(self, key):
+        dtype = None
         if key == "TimeLimit.truncated":
-            # Truncated is true when the episode ended due to step limit
-            term = self._info.get("termination", None)
-            trunc = self._info.get("truncation", None)
-            if trunc is not None and term is not None:
-                return bool(trunc[self._index] and not term[self._index])
-            return False
+            key = "truncation"
+            dtype = jnp.bool
         elif key == "terminal_observation":
-            last_obs = self._info.get("last_obs", None)
-            if last_obs is not None:
-                return tree_util.tree_map(lambda x: x[self._index], last_obs)
-            raise KeyError("terminal_observation not available")
-        else:
-            value = self._info[key]
-            return tree_util.tree_map(lambda x: self._maybe_unwrap_scalar(x[self._index]), value)
+            key = "last_obs"
+        value = tree_util.tree_map(lambda x: x[self._index], self._info[key])
+        if dtype:
+            value = value.astype(dtype)
+        if self._scalar_unwrap and hasattr(value, "shape") and value.shape == ():
+            value = value.item()
+        if self._to_numpy and hasattr(value, "__array__"):
+            return np.asarray(value)
+        return value
 
     def keys(self):
         keys = set(self._info.keys())
@@ -54,9 +57,10 @@ class InfoElementView:
 class InfoWrapper:
     """A list-like wrapper for a PyTree info dict-of-arrays."""
 
-    def __init__(self, info, scalar_unwrap=True):
+    def __init__(self, info, scalar_unwrap=True, to_numpy=True):
         self._info = info
         self._scalar_unwrap = scalar_unwrap
+        self._to_numpy = to_numpy
 
     def __len__(self):
         # Use length of any first-leaf array (assumes uniform length)
@@ -65,11 +69,11 @@ class InfoWrapper:
     def __getitem__(self, index):
         if index < 0 or index >= len(self):
             raise IndexError("Index out of bounds")
-        return InfoElementView(self._info, index, scalar_unwrap=self._scalar_unwrap)
+        return InfoElementView(self._info, index, scalar_unwrap=self._scalar_unwrap, to_numpy=self._to_numpy)
 
     def to_list(self):
         """Convert all elements to a list of plain Python dicts."""
         return [self[i].to_dict() for i in range(len(self))]
 
     def __repr__(self):
-        return f"InfoWrapper(len={len(self)}, scalar_unwrap={self._scalar_unwrap})"
+        return f"InfoWrapper(len={len(self)}, scalar_unwrap={self._scalar_unwrap}, to_numpy={self._to_numpy})"
