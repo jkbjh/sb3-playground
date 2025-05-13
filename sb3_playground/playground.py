@@ -7,13 +7,11 @@ import jax.numpy as jnp
 import mujoco
 import mujoco_playground
 import numpy as np
-import tqdm
 from mujoco_playground import registry
 from mujoco_playground._src import mjx_env
 from mujoco_playground._src.wrapper import Wrapper
 
 from .sb3 import Mjx2SB3VecEnv
-from .utils import split_rng_key
 
 # import mujoco_playground.locomotion
 
@@ -158,6 +156,19 @@ class MjxRenderWrapper(mujoco_playground.wrapper.Wrapper):
 
 
 if __name__ == "__main__":
+    import jax
+    import logging
+
+    # Configure the logging
+    logging.basicConfig(
+        level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"  # Set the desired logging level
+    )  # Define the format
+    jax.config.update("jax_log_compiles", True)
+    jax.config.update("jax_logging_level", "DEBUG")
+    jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
+    jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
+    jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
 
     _key, rng = jax.random.split(rng, 2)
     keys = jnp.asarray(jax.random.split(_key, NUM_ENVS))
@@ -176,24 +187,24 @@ if __name__ == "__main__":
     model = PPO("MlpPolicy", sb3_vecenv, verbose=1)
     model.learn(total_timesteps=10000)
 
-    # env = mujoco_playground.wrapper.BraxAutoResetWrapper(_env)
-    jitted_reset = jax.jit(jax.vmap(env.reset))
-    jitted_step = jax.jit(jax.vmap(env.step))
-    jitted_replenish = jax.jit(jax.vmap(env.replenish_reset))
-
-    print("setup done")
-    action_limits = env.mj_model.actuator_ctrlrange
-    state0 = jitted_reset(keys)
-    print("jitted reset done")
-    action = jnp.array(np.random.uniform(size=(NUM_ENVS, env.action_size)))
-    state = jitted_step(state0, action)
-    print("jitted step done")
-    # env.observation_size
-
+    # # env = mujoco_playground.wrapper.BraxAutoResetWrapper(_env)
+    # jitted_reset = jax.jit(jax.vmap(env.reset))
     # jitted_step = jax.jit(jax.vmap(env.step))
-    for i in tqdm.trange(1000):
-        state = jitted_step(state, action)
-        if any(state.done):
-            print("any state was done!")
-            rng, keys = split_rng_key(rng, (NUM_ENVS,))
-            state = jitted_replenish(keys, state)
+    # jitted_replenish = jax.jit(jax.vmap(env.replenish_reset))
+
+    # print("setup done")
+    # action_limits = env.mj_model.actuator_ctrlrange
+    # state0 = jitted_reset(keys)
+    # print("jitted reset done")
+    # action = jnp.array(np.random.uniform(size=(NUM_ENVS, env.action_size)))
+    # state = jitted_step(state0, action)
+    # print("jitted step done")
+    # # env.observation_size
+
+    # # jitted_step = jax.jit(jax.vmap(env.step))
+    # for i in tqdm.trange(1000):
+    #     state = jitted_step(state, action)
+    #     if any(state.done):
+    #         print("any state was done!")
+    #         rng, keys = split_rng_key(rng, (NUM_ENVS,))
+    #         state = jitted_replenish(keys, state)

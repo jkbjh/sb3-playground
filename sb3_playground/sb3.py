@@ -1,3 +1,4 @@
+import time
 from typing import Any
 from typing import Iterable
 from typing import List
@@ -34,8 +35,11 @@ class Mjx2SB3VecEnv(VecEnv):
         self._render_fn = jax.jit(jax.vmap(env.render))
 
         self._state = self._reset_fn(self._next_keys())
-        self.reset_infos = InfoWrapper(self._state.info)
+        self.reset_infos = InfoWrapper(self._state.info, num_envs=self._num_envs)
         self._next_state = None
+        self._start_time = None
+        self._time_total = 0.0
+        self._total_steps = 0.0
 
     def _next_keys(self):
         self.rng, keys = split_rng_key(self.rng, (self._num_envs,))
@@ -43,24 +47,36 @@ class Mjx2SB3VecEnv(VecEnv):
 
     def reset(self):
         self._state = self._reset_fn(self._next_keys())
-        self.reset_infos = InfoWrapper(self._state.info)
+        self.reset_infos = InfoWrapper(self._state.info, num_envs=self._num_envs)
         return np.asarray(self._state.obs)
 
     def step_async(self, actions):
+        if self._total_steps > 20:
+            self._total_steps = 0.0
+            self._time_total = 0.0
+        self._start_time = time.time()
+        print("-> step ", end="")
         clipped = np.clip(actions, self._action_low, self._action_high)
         actions = jnp.asarray(clipped)
         self._next_state = self._step_fn(self._state, actions)
 
     def step_wait(self):
+
         self._state = self._next_state
         obs = np.asarray(self._state.obs)
-        rewards = np.asarray(self._state.reward)
+        # rewards = np.asarray(self._state.reward)
+        # create writable copy, sb3 abuses this.
+        rewards = np.array(self._state.reward)
         dones = np.asarray(self._state.done).astype(bool)
 
         if np.any(dones):
             self._state = self._replenish_fn(self._next_keys(), self._state)
 
-        infos = InfoWrapper(self._state.info)
+        infos = InfoWrapper(self._state.info, num_envs=self._num_envs)
+        end_time = time.time()
+        self._time_total += end_time - self._start_time
+        self._total_steps += 1
+        print(f"{self._time_total / self._total_steps * 1000}ms / {self.num_envs} envs.")
         return obs, rewards, dones, infos
 
     def render(self, mode="rgb_array"):

@@ -63,14 +63,17 @@ class InfoElementView:
 class InfoWrapper:
     """A list-like wrapper for a PyTree info dict-of-arrays."""
 
-    def __init__(self, info, scalar_unwrap=True, to_numpy=True):
+    def __init__(self, info, scalar_unwrap=True, to_numpy=True, num_envs=None):
         self._info = info
         self._scalar_unwrap = scalar_unwrap
         self._to_numpy = to_numpy
+        self._num_envs = num_envs
 
     def __len__(self):
         # Use length of any first-leaf array (assumes uniform length)
-        return len(self._info)
+        if self._num_envs:
+            return self._num_envs
+        return tree_util.tree_leaves(tree_util.tree_map(lambda x: len(x), self._info))[0]
 
     def __getitem__(self, index):
         if index < 0 or index >= len(self):
