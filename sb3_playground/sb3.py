@@ -56,24 +56,14 @@ class Mjx2SB3VecEnv(VecEnv):
         return obs, rewards, dones, infos
 
     def render(self, mode="rgb_array"):
-        return self._render_fn(self._state)
+        return np.asarray(self._render_fn(self._state))
 
     def seed(self, seed=None):
         if seed is not None:
             self.rng = jax.random.PRNGKey(seed)
-            self.rng, self._keys = split_rng_key(self.rng, (self._num_envs,))
-
     def close(self):
         pass
 
-    def get_attr(self, attr_name, indices=None):
-        return [getattr(self.env, attr_name)] * self._num_envs
-
-    def set_attr(self, attr_name, value, indices=None):
-        setattr(self.env, attr_name, value)
-
-    def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
-        return [getattr(self.env, method_name)(*method_args, **method_kwargs)] * self._num_envs
 
     @property
     def num_envs(self):
