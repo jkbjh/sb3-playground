@@ -56,6 +56,9 @@ class InfoElementView:
         """Convert this view to a plain Python dict."""
         return {k: self[k] for k in self}
 
+    def copy(self):
+        return self.to_dict()
+
     def __repr__(self):
         return f"InfoElementView({{ {', '.join(f'{k}: {self[k]!r}' for k in self) } }})"
 
@@ -76,13 +79,19 @@ class InfoWrapper:
         return tree_util.tree_leaves(tree_util.tree_map(lambda x: len(x), self._info))[0]
 
     def __getitem__(self, index):
+        if isinstance(index, slice):
+            return self.to_list(index)
         if index < 0 or index >= len(self):
             raise IndexError("Index out of bounds")
         return InfoElementView(self._info, index, scalar_unwrap=self._scalar_unwrap, to_numpy=self._to_numpy)
 
-    def to_list(self):
+    def to_list(self, slicer=slice(None)):
         """Convert all elements to a list of plain Python dicts."""
-        return [self[i].to_dict() for i in range(len(self))]
+        return [self[i].to_dict() for i in range(len(self))[slicer]]
+
+    # def to_list(self):
+    #     """Convert all elements to a list of plain Python dicts."""
+    #     return [self[i].to_dict() for i in range(len(self))]
 
     def __repr__(self):
         return f"InfoWrapper(len={len(self)}, scalar_unwrap={self._scalar_unwrap}, to_numpy={self._to_numpy})"

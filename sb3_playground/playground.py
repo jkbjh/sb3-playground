@@ -127,6 +127,43 @@ class MjxEpisodeWrapper(mujoco_playground.wrapper.Wrapper):
         return state.replace(done=done)
 
 
+class MjxMonitorHelperWrapper(mujoco_playground.wrapper.Wrapper):
+    def reset(self, rng: jax.Array) -> mjx_env.State:
+        state = self.env.reset(rng)
+        if "wallclock" not in state.info:
+            state.info["wallclock"] = jnp.nan
+        state.info["current_episode_start_time"] = state.info["wallclock"]
+        state.info["episode_duration"] = jnp.nan
+        state.info["episode_return"] = jnp.nan
+        state.info["current_episode_return"] = 0.0
+        if "steps" in state.info:
+            state.info["episode_length"] = 0.0
+        return state
+
+    def set_wallclock(self, state, wallclock: float, start):
+        state.info["wallclock"] = wallclock
+        if start:
+            state.info["current_episode_start_time"] = state.info["wallclock"]
+        return state
+
+    def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
+        state = self.env.step(state, action)
+        info = state.info
+        done = state.done
+
+        current_episode_duration = info["wallclock"] - info["current_episode_start_time"]
+        info["episode_duration"] = jnp.where(done, current_episode_duration, info["episode_duration"])
+        info["current_episode_duration"] = current_episode_duration
+        info["current_episode_start_time"] = jnp.where(done, info["wallclock"], info["current_episode_start_time"])
+
+        current_episode_return = info["current_episode_return"] + state.reward
+        info["episode_return"] = jnp.where(done, current_episode_return, info["episode_return"])
+        info["current_episode_return"] = jnp.where(done, 0.0, current_episode_return)
+        if "steps" in info:
+            info["episode_length"] = jnp.where(done, info["steps"], info["episode_length"])
+        return state
+
+
 class MjxRenderWrapper(mujoco_playground.wrapper.Wrapper):
     """Wrapper that replaces only the render method of an MJX environment,
     using a jax with a custom JAX-compatible version."""
@@ -156,6 +193,7 @@ class MjxRenderWrapper(mujoco_playground.wrapper.Wrapper):
 
 
 if __name__ == "__main__":
+    # jax logging & caching
     import jax
     import logging
 
@@ -166,26 +204,54 @@ if __name__ == "__main__":
     jax.config.update("jax_log_compiles", True)
     jax.config.update("jax_logging_level", "DEBUG")
     jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
+    # jax.config.update("jax_enable_compilation_cache", 1)
     jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
     jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
     jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
 
+    # setup environment.
     _key, rng = jax.random.split(rng, 2)
     keys = jnp.asarray(jax.random.split(_key, NUM_ENVS))
     env_cfg = mujoco_playground.registry.get_default_config(ENV_NAME)
-    env_cfg.episode_length = 3
     __env = registry.load(ENV_NAME, config=env_cfg)
+    # info keys: rng
     _env = MjxRenderWrapper(__env)
+    # info keys: rng
     tlenv = MjxEpisodeWrapper(_env, episode_length=env_cfg.episode_length, action_repeat=env_cfg.action_repeat)
-    env = ReplenishableAutoResetWrapper(tlenv)
+    # info keys: rng, steps, termination, truncation
+    arenv = ReplenishableAutoResetWrapper(tlenv)
+    env = MjxMonitorHelperWrapper(arenv)
+    # info keys: last_data, last_obs, reset_data, reset_obs, rng, steps, termination, truncation
 
+    # setup sb3 env.
     sb3_vecenv = Mjx2SB3VecEnv(env, NUM_ENVS, rng)
+    sb3_evalvecenv = Mjx2SB3VecEnv(env, 8, rng)
     sb3_vecenv.reset()
 
+    # setup SB3
     from stable_baselines3 import PPO
+    from stable_baselines3.common.callbacks import EvalCallback
 
-    model = PPO("MlpPolicy", sb3_vecenv, verbose=1)
-    model.learn(total_timesteps=10000)
+    # from stable_baselines3.common.vec_env import DummyVecEnv
+    from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
+
+    # Create an evaluation callback that logs every 5000 steps and saves the best model
+    eval_callback = EvalCallback(
+        VecMonitor(sb3_evalvecenv),
+        best_model_save_path="./logs/best_model",
+        log_path="./logs/eval",
+        # eval_freq=5000,
+        eval_freq=10000,
+        deterministic=True,
+        render=False,
+    )
+    actions = np.vstack([sb3_vecenv.action_space.sample() for i in range(sb3_vecenv.num_envs)])
+
+    # Create and train the model
+    model = PPO("MlpPolicy", sb3_vecenv, verbose=1, n_steps=64)
+    # model = PPO("MlpPolicy", VecMonitor(sb3_vecenv), verbose=1, n_steps=64)
+    model.learn(total_timesteps=1000000)  # , callback=eval_callback)
+    # model.learn(total_timesteps=100000, callback=eval_callback)
 
     # # env = mujoco_playground.wrapper.BraxAutoResetWrapper(_env)
     # jitted_reset = jax.jit(jax.vmap(env.reset))

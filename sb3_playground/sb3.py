@@ -1,3 +1,4 @@
+import functools
 import time
 from typing import Any
 from typing import Iterable
@@ -9,6 +10,7 @@ import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import VecEnv
 
 from .infoview import InfoWrapper
@@ -17,6 +19,12 @@ from .utils import split_rng_key
 
 class Mjx2SB3VecEnv(VecEnv):
     def __init__(self, env, num_envs, rng):
+        self._hide_info_keys = {
+            "rng",
+            "last_data",
+            "reset_data",
+        }
+
         self.env = env
         self._num_envs = num_envs
         self.rng = rng
@@ -34,20 +42,53 @@ class Mjx2SB3VecEnv(VecEnv):
         self._replenish_fn = jax.jit(jax.vmap(env.replenish_reset))
         self._render_fn = jax.jit(jax.vmap(env.render))
 
-        self._state = self._reset_fn(self._next_keys())
-        self.reset_infos = InfoWrapper(self._state.info, num_envs=self._num_envs)
+        self._monitor = hasattr(env, "set_wallclock")
+        if self._monitor:
+            self._monitor_update_start = jax.jit(jax.vmap(functools.partial(env.set_wallclock, start=True)))
+            self._monitor_update = jax.jit(jax.vmap(functools.partial(env.set_wallclock, start=False)))
+
+        self._state = self._reset_fn(self._generate_random_keys())
+        self.reset_infos = self._wrap_info(self._state.info)
         self._next_state = None
         self._start_time = None
         self._time_total = 0.0
         self._total_steps = 0.0
+        self._base_time = None
 
-    def _next_keys(self):
+    def get_time(self):
+        """
+        get time relative to the first call of this function for the object.
+        This is necessary because of float32
+        """
+        if self._base_time is None:
+            self._base_time = time.time()
+        return time.time() - self._base_time
+
+    def _wrap_info(self, info):
+        return InfoWrapper(info, num_envs=self._num_envs)
+        # def wrapinfo(info):
+        #     newdict = dict_copy_without(info, self._hide_info_keys)
+        #     return transpose_pytree(newdict)
+        # return wrapinfo(info)
+
+    def _generate_random_keys(self):
         self.rng, keys = split_rng_key(self.rng, (self._num_envs,))
         return keys
 
+    def _update_monitor_clock(self, start=False):
+        if self._monitor or True:
+            _wallclock = self.get_time()
+            wallclock = jnp.tile(jnp.array([_wallclock]), (self.num_envs,))
+            print("WC", wallclock[0], _wallclock)
+            if start:
+                self._state = self._monitor_update_start(self._state, wallclock)
+            else:
+                self._state = self._monitor_update(self._state, wallclock)
+
     def reset(self):
-        self._state = self._reset_fn(self._next_keys())
-        self.reset_infos = InfoWrapper(self._state.info, num_envs=self._num_envs)
+        self._state = self._reset_fn(self._generate_random_keys())
+        self._update_monitor_clock(start=True)
+        self.reset_infos = self._wrap_info(self._state.info)
         return np.asarray(self._state.obs)
 
     def step_async(self, actions):
@@ -58,11 +99,12 @@ class Mjx2SB3VecEnv(VecEnv):
         print("-> step ", end="")
         clipped = np.clip(actions, self._action_low, self._action_high)
         actions = jnp.asarray(clipped)
+        self._update_monitor_clock()
         self._next_state = self._step_fn(self._state, actions)
 
     def step_wait(self):
-
         self._state = self._next_state
+        self._next_state = None
         obs = np.asarray(self._state.obs)
         # rewards = np.asarray(self._state.reward)
         # create writable copy, sb3 abuses this.
@@ -70,13 +112,14 @@ class Mjx2SB3VecEnv(VecEnv):
         dones = np.asarray(self._state.done).astype(bool)
 
         if np.any(dones):
-            self._state = self._replenish_fn(self._next_keys(), self._state)
+            self._state = self._replenish_fn(self._generate_random_keys(), self._state)
 
-        infos = InfoWrapper(self._state.info, num_envs=self._num_envs)
+        infos = self._wrap_info(self._state.info)
         end_time = time.time()
         self._time_total += end_time - self._start_time
         self._total_steps += 1
-        print(f"{self._time_total / self._total_steps * 1000}ms / {self.num_envs} envs.")
+        print(f"DEBUG: {self._time_total / self._total_steps * 1000}ms / {self.num_envs} envs.")
+        print(self._state.info["current_episode_duration"][:3], self._state.info["episode_duration"][:3])
         return obs, rewards, dones, infos
 
     def render(self, mode="rgb_array"):
@@ -117,6 +160,8 @@ class Mjx2SB3VecEnv(VecEnv):
         # Example implementation:
         # indices = self._get_indices(indices)
         # return [getattr(self.envs[i], attr_name) for i in indices]
+        if not indices and attr_name == "render_mode":
+            return ["rgb_array"] * self.num_envs
         raise NotImplementedError("get_attr is not implemented in this wrapper.")
 
     def set_attr(self, attr_name: str, value: Any, indices: Optional[Union[int, Iterable[int]]] = None) -> None:
@@ -166,6 +211,8 @@ class Mjx2SB3VecEnv(VecEnv):
         :param indices: Indices of the environments to check. If None, check all.
         :return: A boolean or list of booleans indicating if the env(s) are wrapped.
         """
+        if not indices and wrapper_class is Monitor:
+            return [False] * self.num_envs
         # Example implementation (commented out):
         # if indices is None:
         #     indices = range(self.num_envs)

@@ -27,3 +27,23 @@ def split_rng_key(rng_key, shape):
     new_rng_key, split_keys = keys[0], keys[1:]
     split_keys = split_keys.reshape(shape + (2,))
     return new_rng_key, split_keys
+
+
+# Function to transpose the structure
+def transpose_pytree(pytree):
+    # Extract the first dimension length
+    first_dim_length = next(iter(pytree.values())).shape[0]
+
+    # Create a list of dictionaries
+    transposed = []
+    for i in range(first_dim_length):
+        # Use tree_map to extract the i-th element from each array
+        transposed.append(jax.tree_util.tree_map(lambda x: x[i], pytree))
+    return transposed
+
+
+def dict_copy_without(indict: dict, forbiddenkeys: set) -> dict:
+    newdict = dict(indict)
+    for badkey in forbiddenkeys:
+        newdict.pop(badkey, None)
+    return newdict
