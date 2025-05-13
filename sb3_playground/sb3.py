@@ -28,7 +28,7 @@ class Mjx2SB3VecEnv(VecEnv):
 
         self._state = self._reset_fn(self._next_keys())
         self.reset_infos = InfoWrapper(self._state.info)
-        self._actions = None
+        self._next_state = None
 
     def _next_keys(self):
         self.rng, keys = split_rng_key(self.rng, (self._num_envs,))
@@ -41,10 +41,11 @@ class Mjx2SB3VecEnv(VecEnv):
 
     def step_async(self, actions):
         clipped = np.clip(actions, self._action_low, self._action_high)
-        self._actions = jnp.asarray(clipped)
+        actions = jnp.asarray(clipped)
+        self._next_state = self._step_fn(self._state, actions)
 
     def step_wait(self):
-        self._state = self._step_fn(self._state, self._actions)
+        self._state = self._next_state
         obs = np.asarray(self._state.obs)
         rewards = np.asarray(self._state.reward)
         dones = np.asarray(self._state.done).astype(bool)
@@ -58,12 +59,12 @@ class Mjx2SB3VecEnv(VecEnv):
     def render(self, mode="rgb_array"):
         return np.asarray(self._render_fn(self._state))
 
-    def seed(self, seed=None):
-        if seed is not None:
-            self.rng = jax.random.PRNGKey(seed)
     def close(self):
         pass
 
+    def seed(self, seed=None):
+        if seed is not None:
+            self.rng = jax.random.PRNGKey(seed)
 
     @property
     def num_envs(self):
