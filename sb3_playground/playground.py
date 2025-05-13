@@ -11,16 +11,13 @@ import tqdm
 from mujoco_playground import registry
 from mujoco_playground._src import mjx_env
 from mujoco_playground._src.wrapper import Wrapper
-from .utils import tree_slice, split_rng_key
+from .utils import split_rng_key
 
 
 ENV_NAME = "CartpoleBalance"
 # ENV_NAME = "SwimmerSwimmer6"
 NUM_ENVS = 128
 rng = jax.random.PRNGKey(42)
-
-
-
 
 
 class ReplenishableAutoResetWrapper(Wrapper):
