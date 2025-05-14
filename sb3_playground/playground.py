@@ -15,11 +15,6 @@ from .sb3 import Mjx2SB3VecEnv
 
 # import mujoco_playground.locomotion
 
-ENV_NAME = "CartpoleBalance"
-# ENV_NAME = "SwimmerSwimmer6"
-NUM_ENVS = 128
-rng = jax.random.PRNGKey(42)
-
 
 class ReplenishableAutoResetWrapper(Wrapper):
     """Automatically resets Brax envs that are done using a cached initial reset obs and data
@@ -136,6 +131,7 @@ class MjxMonitorHelperWrapper(mujoco_playground.wrapper.Wrapper):
         state.info["episode_duration"] = jnp.nan
         state.info["episode_return"] = jnp.nan
         state.info["current_episode_return"] = 0.0
+        state.info["current_episode_length"] = 0.0
         if "steps" in state.info:
             state.info["episode_length"] = 0.0
         return state
@@ -155,12 +151,13 @@ class MjxMonitorHelperWrapper(mujoco_playground.wrapper.Wrapper):
         info["episode_duration"] = jnp.where(done, current_episode_duration, info["episode_duration"])
         info["current_episode_duration"] = current_episode_duration
         info["current_episode_start_time"] = jnp.where(done, info["wallclock"], info["current_episode_start_time"])
+        current_episode_length = info["current_episode_length"] + 1
 
         current_episode_return = info["current_episode_return"] + state.reward
         info["episode_return"] = jnp.where(done, current_episode_return, info["episode_return"])
+        info["episode_length"] = jnp.where(done, info["current_episode_length"], info["episode_length"])
         info["current_episode_return"] = jnp.where(done, 0.0, current_episode_return)
-        if "steps" in info:
-            info["episode_length"] = jnp.where(done, info["steps"], info["episode_length"])
+        info["current_episode_length"] = jnp.where(done, 0.0, current_episode_length)
         return state
 
 
@@ -203,11 +200,16 @@ if __name__ == "__main__":
     )  # Define the format
     jax.config.update("jax_log_compiles", True)
     jax.config.update("jax_logging_level", "DEBUG")
+
     jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
     # jax.config.update("jax_enable_compilation_cache", 1)
     jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
     jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
     jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
+    ENV_NAME = "CartpoleBalance"
+    # ENV_NAME = "SwimmerSwimmer6"
+    NUM_ENVS = 1024  # 512 #128
+    rng = jax.random.PRNGKey(42)
 
     # setup environment.
     _key, rng = jax.random.split(rng, 2)
@@ -233,25 +235,29 @@ if __name__ == "__main__":
     from stable_baselines3.common.callbacks import EvalCallback
 
     # from stable_baselines3.common.vec_env import DummyVecEnv
-    from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
+    # from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
 
     # Create an evaluation callback that logs every 5000 steps and saves the best model
+    # eval_callback = EvalCallback(eval_env, n_eval_episodes=10, eval_freq=1000, verbose=1)
     eval_callback = EvalCallback(
-        VecMonitor(sb3_evalvecenv),
+        # VecMonitor(sb3_evalvecenv),
+        sb3_evalvecenv,
         best_model_save_path="./logs/best_model",
         log_path="./logs/eval",
         # eval_freq=5000,
-        eval_freq=10000,
+        eval_freq=100,
+        n_eval_episodes=1,
         deterministic=True,
         render=False,
+        verbose=1,
     )
     actions = np.vstack([sb3_vecenv.action_space.sample() for i in range(sb3_vecenv.num_envs)])
 
     # Create and train the model
     model = PPO("MlpPolicy", sb3_vecenv, verbose=1, n_steps=64)
     # model = PPO("MlpPolicy", VecMonitor(sb3_vecenv), verbose=1, n_steps=64)
-    model.learn(total_timesteps=1000000)  # , callback=eval_callback)
-    # model.learn(total_timesteps=100000, callback=eval_callback)
+    # model.learn(total_timesteps=1000000)  # , callback=eval_callback)
+    model.learn(total_timesteps=1000000, callback=eval_callback)
 
     # # env = mujoco_playground.wrapper.BraxAutoResetWrapper(_env)
     # jitted_reset = jax.jit(jax.vmap(env.reset))

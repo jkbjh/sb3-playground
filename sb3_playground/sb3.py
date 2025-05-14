@@ -16,6 +16,8 @@ from stable_baselines3.common.vec_env import VecEnv
 from .infoview import InfoWrapper
 from .utils import split_rng_key
 
+# from .utils import dict_copy_without, transpose_pytree
+
 
 class Mjx2SB3VecEnv(VecEnv):
     def __init__(self, env, num_envs, rng):
@@ -64,12 +66,16 @@ class Mjx2SB3VecEnv(VecEnv):
             self._base_time = time.time()
         return time.time() - self._base_time
 
-    def _wrap_info(self, info):
-        return InfoWrapper(info, num_envs=self._num_envs)
+    def _wrap_info(self, info, done=None):
+        #  ep_info = {"r": round(ep_rew, 6), "l": ep_len, "t": round(time.time() - self.t_start, 6)}
+        infos = InfoWrapper(info, num_envs=self._num_envs)
         # def wrapinfo(info):
         #     newdict = dict_copy_without(info, self._hide_info_keys)
         #     return transpose_pytree(newdict)
-        # return wrapinfo(info)
+        # infos = wrapinfo(info)
+        # if done is not None and any(done):
+        #     breakpoint()
+        return infos
 
     def _generate_random_keys(self):
         self.rng, keys = split_rng_key(self.rng, (self._num_envs,))
@@ -79,7 +85,6 @@ class Mjx2SB3VecEnv(VecEnv):
         if self._monitor or True:
             _wallclock = self.get_time()
             wallclock = jnp.tile(jnp.array([_wallclock]), (self.num_envs,))
-            print("WC", wallclock[0], _wallclock)
             if start:
                 self._state = self._monitor_update_start(self._state, wallclock)
             else:
@@ -96,7 +101,7 @@ class Mjx2SB3VecEnv(VecEnv):
             self._total_steps = 0.0
             self._time_total = 0.0
         self._start_time = time.time()
-        print("-> step ", end="")
+        # print("-> step ", end="")
         clipped = np.clip(actions, self._action_low, self._action_high)
         actions = jnp.asarray(clipped)
         self._update_monitor_clock()
@@ -114,12 +119,12 @@ class Mjx2SB3VecEnv(VecEnv):
         if np.any(dones):
             self._state = self._replenish_fn(self._generate_random_keys(), self._state)
 
-        infos = self._wrap_info(self._state.info)
+        infos = self._wrap_info(self._state.info, done=dones)
         end_time = time.time()
         self._time_total += end_time - self._start_time
         self._total_steps += 1
+        # print(f"{self._state.info['current_episode_length']}")
         print(f"DEBUG: {self._time_total / self._total_steps * 1000}ms / {self.num_envs} envs.")
-        print(self._state.info["current_episode_duration"][:3], self._state.info["episode_duration"][:3])
         return obs, rewards, dones, infos
 
     def render(self, mode="rgb_array"):
@@ -212,7 +217,8 @@ class Mjx2SB3VecEnv(VecEnv):
         :return: A boolean or list of booleans indicating if the env(s) are wrapped.
         """
         if not indices and wrapper_class is Monitor:
-            return [False] * self.num_envs
+            has_monitor = self._monitor
+            return [has_monitor] * self.num_envs
         # Example implementation (commented out):
         # if indices is None:
         #     indices = range(self.num_envs)

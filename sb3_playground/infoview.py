@@ -1,6 +1,61 @@
+import functools
+
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import tree_util
+
+
+@functools.partial(jax.jit, static_argnums=1)
+def why(arg, name):
+    print(name)
+
+
+class EpisodeInfoView:
+    def __init__(self, info, index, scalar_unwrap=True, to_numpy=True):
+        self._info = info
+        self._index = index
+        self._scalar_unwrap = scalar_unwrap
+        self._to_numpy = to_numpy
+
+    def __getitem__(self, key):
+        if key == "r":
+            key = "episode_return"
+        elif key == "l":
+            key = "episode_length"
+        elif key == "t":
+            key = "episode_duration"
+        value = tree_util.tree_map(lambda x: x[self._index], self._info[key])
+        if self._to_numpy and hasattr(value, "__array__"):
+            return np.asarray(value)
+        if hasattr(value, "shape") and value.shape == ():
+            value = value.item()
+        return value
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def keys(self):
+        return {"r", "t", "l"}
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def items(self):
+        return ((k, self[k]) for k in self)
+
+    def to_dict(self):
+        """Convert this view to a plain Python dict."""
+        return {k: self[k] for k in self}
+
+    def copy(self):
+        return self.to_dict()
+
+    # def __repr__(self):
+    #     return f"InfoElementView({{ {', '.join(f'{k}: {self[k]!r}' for k in self) } }})"
 
 
 class InfoElementView:
@@ -11,6 +66,14 @@ class InfoElementView:
         self._index = index
         self._scalar_unwrap = scalar_unwrap
         self._to_numpy = to_numpy
+        self._get_ep_info = jax.jit(self.get_ep_info)
+
+    @staticmethod
+    def get_ep_info(info, index):
+        r = tree_util.tree_map(lambda x: x[index], info["episode_return"])  # noqa: E741
+        t = tree_util.tree_map(lambda x: x[index], info["episode_duration"])  # noqa: E741
+        l = tree_util.tree_map(lambda x: x[index], info["episode_length"])  # noqa: E741
+        return r, l, t
 
     def _maybe_convert(self, x):
         if self._scalar_unwrap and hasattr(x, "shape") and x.shape == ():
@@ -26,6 +89,11 @@ class InfoElementView:
             dtype = jnp.bool_
         elif key == "terminal_observation":
             key = "last_obs"
+        elif key == "episode":
+            r, l, t = self._get_ep_info(self._info, jnp.int32(self._index))  # noqa: E741
+            return dict(r=np.asarray(r).item(), l=np.asarray(l).item(), t=np.asarray(t).item())
+
+            # return EpisodeInfoView(self._info, self._index, self._scalar_unwrap, self._to_numpy)
         value = tree_util.tree_map(lambda x: x[self._index], self._info[key])
         if dtype:
             value = value.astype(dtype)
@@ -44,6 +112,7 @@ class InfoElementView:
     def keys(self):
         keys = set(self._info.keys())
         keys.update({"TimeLimit.truncated", "terminal_observation"})
+        keys.update({"episode"})
         return keys
 
     def __iter__(self):
